@@ -1,0 +1,81 @@
+name: Build Bootmgr
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Bootmgr for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: bootmgr-windows-x86_64
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static -C link-arg=/LTCG
+
+      - name: Move artifact
+        run: |
+          mv target/${{ matrix.target }}/release/bootmgr${{ (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm') && '.exe' || '' }} target/${{ matrix.target }}/release/${{ matrix.artifact }}${{ (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm') && '.exe' || '' }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact }}${{ (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm') && '.exe' || '' }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+        with:
+          path: ./artifacts
+          merge-multiple: true
+
+      - name: Prepare Release Info
+        run: |
+          echo -e "$BUILD_INFO" >> INFO.txt
+          echo "Change log:" >> INFO.txt
+          set +e
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
+          if [ $? -eq 0 ]; then
+          git log "$LAST_TAG"..HEAD --pretty=format:"- %h - %an: %s" >> INFO.txt
+          else
+          git log --pretty=format:"- %h - %an: %s" >> INFO.txt
+          fi
+          cat INFO.txt
+          echo BUILD_DATE=`date +%F` >> "$GITHUB_ENV"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./artifacts/*
+          tag_name: ${{ env.BUILD_DATE }}-${{ github.run_id }}
+          name: Release ${{ env.BUILD_DATE }}-${{ github.run_id }}
+          body_path: INFO.txt
