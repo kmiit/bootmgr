@@ -3,17 +3,23 @@ use std::process::Command;
 
 #[derive(Default, Debug)]
 struct BcdEntry {
-    pub id: String,
-    pub device: String,
-    pub path: String,
-    pub description: String,
-    pub locale: String,
-    pub inherit: String,
-    pub default: String,
-    pub resumeobject: String,
-    pub displayorder: Vec<String>,
-    pub toolsdisplayorder: String,
-    pub timeout: u32,
+    pub id: Option<String>,
+    pub device: Option<String>,
+    pub path: Option<String>,
+    pub description: Option<String>,
+    pub locale: Option<String>,
+    pub inherit: Option<String>,
+    pub default: Option<String>,
+    pub resumeobject: Option<String>,
+    pub displayorder: Vec<Option<String>>,
+    pub toolsdisplayorder: Option<String>,
+    pub timeout: Option<u32>,
+}
+
+impl BcdEntry {
+    pub fn entry_on_disk(&self) -> bool {
+        self.device != None && self.path != None
+    }
 }
 
 pub(crate) fn show_bcd_list() {
@@ -29,8 +35,8 @@ pub(crate) fn show_bcd_list() {
                 } else {
                     " "
                 },
-                i.description,
-                i.id
+                i.description.clone().unwrap(),
+                i.id.clone().unwrap()
             )
         );
     }
@@ -39,8 +45,8 @@ pub(crate) fn show_bcd_list() {
 pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
     let entries = get_bcd_entries()?;
     let find_entry = entries.iter().skip(1).any(|i| {
-        i.description.to_lowercase() == entry.to_lowercase()
-            || i.id.to_lowercase() == entry.to_lowercase()
+        i.description.clone().unwrap().to_lowercase() == entry.to_lowercase()
+            || i.id.clone().unwrap().to_lowercase() == entry.to_lowercase()
     });
     if !find_entry {
         eprintln!("BCD entry {} not found", entry);
@@ -63,14 +69,26 @@ pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
     }
 }
 
-pub(crate) fn get_grub_location() -> Result<String> {
+pub(crate) fn get_grub_location(description: Option<String>) -> Result<Option<String>> {
+    let desc = description.unwrap_or_else(|| "grub".to_string());
     let entries = get_bcd_entries()?;
-    let mut device: String = "".to_string();
+    let mut device: Option<String> = None;
     for i in entries {
-        if i.description.to_lowercase().contains("grub") {
-            device = i.device.split('=').collect::<Vec<&str>>()[1]
-                .trim()
-                .to_string();
+        if !i.entry_on_disk() {
+            continue;
+        }
+        if i.description
+            .clone()
+            .unwrap()
+            .to_lowercase()
+            .contains(desc.as_str())
+        {
+            device = Option::from(
+                i.device.unwrap().split('=').collect::<Vec<&str>>()[1]
+                    .trim()
+                    .to_string(),
+            );
+            return Ok(device);
         }
     }
     Ok(device)
@@ -101,7 +119,7 @@ fn parse_bcd_entries(output: String) -> Vec<BcdEntry> {
     entries
 }
 
-fn parse_entry(section: String, order: Vec<String>) -> BcdEntry {
+fn parse_entry(section: String, order: Vec<Option<String>>) -> BcdEntry {
     let mut ret = BcdEntry::default();
     let mut lines_iter = section
         .lines()
@@ -117,7 +135,7 @@ fn parse_entry(section: String, order: Vec<String>) -> BcdEntry {
         }
 
         let key = parts[0];
-        let value = parts[1].trim().to_string();
+        let value = Some(parts[1].trim().to_string());
 
         match key {
             "device" => ret.device = value,
@@ -129,17 +147,15 @@ fn parse_entry(section: String, order: Vec<String>) -> BcdEntry {
             "resumeobject" => ret.resumeobject = value,
             "toolsdisplayorder" => ret.toolsdisplayorder = value,
             "timeout" => {
-                ret.timeout = value.trim().parse::<u32>().unwrap_or_else(|e| {
-                    eprintln!("Warning: Failed to parse timeout '{}': {}", value, e);
-                    0
-                });
+                ret.timeout = value.unwrap().trim().parse::<u32>().ok();
             }
             "displayorder" => {
                 ret.displayorder.push(value);
                 while let Some(next_line) = lines_iter.peek() {
                     let next_parts: Vec<&str> = next_line.splitn(2, ' ').collect();
                     if next_parts.len() == 1 {
-                        ret.displayorder.push(next_parts[0].to_string());
+                        ret.displayorder
+                            .push(Option::from(next_parts[0].to_string()));
                         lines_iter.next();
                     } else {
                         break;
@@ -148,11 +164,11 @@ fn parse_entry(section: String, order: Vec<String>) -> BcdEntry {
             }
             _ => {
                 // Handle the 'identifier' key separately
-                if order.contains(&value) || value == "{fwbootmgr}" {
-                    ret.id = value.to_string();
+                if order.contains(&value) || value == Some("{fwbootmgr}".to_string()) {
+                    ret.id = value;
                 }
-                if ret.id == "{fwbootmgr}" {
-                    ret.description = "UEFI Loader".to_string();
+                if ret.id == Some("{fwbootmgr}".to_string()) {
+                    ret.description = Some("UEFI Loader".to_string());
                 }
             }
         }

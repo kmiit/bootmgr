@@ -160,19 +160,30 @@ pub(crate) trait Interface {
             }
         }
     }
+
+    /// Show the firmware boot entries
+    fn show_fw_entry(&self);
+
+    /// Set the firmware boot entry
+    /// # Arguments
+    /// * `entry` - The firmware boot entry to set
+    fn set_fw_entry(&self, entry: String) -> Result<()>;
 }
 
 #[derive(Default)]
-pub struct Handle;
+pub struct Handle {
+    pub grub_desc: Option<String>,
+}
 
 impl Handle {
     pub(crate) fn new() -> Self {
-        if !Self::check_permission(&Self) {
+        let s = Self::default();
+        if !Self::check_permission(&s) {
             eprintln!("No admin permission, restarting as administrator");
-            Self::rerun_as_superuser(&Self);
+            // Self::rerun_as_superuser(&Self);
             exit(1);
         }
-        Default::default()
+        s
     }
 }
 

@@ -61,21 +61,6 @@ fn rerun_as_administrator() {
     }
 }
 
-impl Handle {
-    /// Show the BCD entries
-    pub(crate) fn show_bcd_entry(&self) {
-        bcd_helper::show_bcd_list();
-    }
-
-    /// Set the BCD entry
-    /// # Arguments
-    /// * `entry` - The BCD entry to set
-    pub(crate) fn set_bcd_entry(&self, entry: String) {
-        println!("Set BCD entry to {}", entry);
-        bcd_helper::set_bcd_entry(entry).expect("Failed to set BCD entry");
-    }
-}
-
 impl Interface for Handle {
     fn check_permission(&self) -> bool {
         is_admin()
@@ -91,12 +76,12 @@ impl Interface for Handle {
     }
 
     fn get_file(&self, path: String) -> Result<File> {
-        let device = bcd_helper::get_grub_location()?;
-        if device == "" {
+        let device = bcd_helper::get_grub_location(self.grub_desc.clone())?;
+        if device.clone().unwrap().as_str() == "" {
             panic!("Failed to get grub location");
         }
 
-        let volume_guid = volume_helper::get_volume_guid_path(device.as_str())?;
+        let volume_guid = volume_helper::get_volume_guid_path(device.unwrap().as_str())?;
         let mount_point = volume_helper::mount_volume_temporarily(volume_guid.as_str())?;
         let file = file_operations::open_file_ro(mount_point.join(path))?;
         volume_helper::unmount_volume(mount_point).expect("Umount failed");
@@ -104,16 +89,25 @@ impl Interface for Handle {
     }
 
     fn write_file(&self, path: String, content: String) -> Result<()> {
-        let device = bcd_helper::get_grub_location()?;
-        if device == "" {
+        let device = bcd_helper::get_grub_location(self.grub_desc.clone())?;
+        if device.clone().unwrap() == "" {
             panic!("Failed to get grub location");
         }
-        let volume_guid = volume_helper::get_volume_guid_path(device.as_str())?;
+        let volume_guid = volume_helper::get_volume_guid_path(device.unwrap().as_str())?;
         let mount_point = volume_helper::mount_volume_temporarily(volume_guid.as_str())?;
         let mut file = file_operations::open_file_wo(mount_point.join(path))?;
         file.write_all(content.as_bytes())?;
         volume_helper::unmount_volume(mount_point).expect("Umount failed");
         Ok(())
+    }
+
+    fn show_fw_entry(&self) {
+        bcd_helper::show_bcd_list();
+    }
+
+    fn set_fw_entry(&self, entry: String) -> Result<()> {
+        println!("Set BCD firmware entry to {}", entry);
+        bcd_helper::set_bcd_entry(entry)
     }
 }
 
