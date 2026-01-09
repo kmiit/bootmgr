@@ -44,12 +44,15 @@ fn rerun_as_administrator() {
     unsafe {
         let exe_path = std::env::current_exe().unwrap();
         let exe_w: Vec<u16> = make_os_str(exe_path.to_str().unwrap());
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args_string = args.join(" ");
+        let params_w: Vec<u16> = make_os_str(&args_string);
 
         let result = ShellExecuteW(
             Option::from(HWND::default()),
             w!("runas"),
             PCWSTR(exe_w.as_ptr()),
-            PCWSTR::null(),
+            PCWSTR(params_w.as_ptr()),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         );

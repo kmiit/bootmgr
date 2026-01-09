@@ -13,6 +13,22 @@ Change default boot entry
 - Change default boot entry(BCDEdit)
 - Change default boot entry(Grub2)
 
+```
+Usage: bootmgr.exe <COMMAND>
+
+Commands:
+  list
+    Options:
+      -g, --grub                       List the GRUB boot entries
+      -f, --firmware                   List the firmware boot entries
+      -d, --description <DESCRIPTION>  Description for the entry of grub
+  set
+    Options:
+      -g, --grub <ENTRY>               Set the GRUB entry by id or index
+      -f, --firmware <ENTRY>           Set the firmware entry by identifier
+      -d, --description <DESCRIPTION>  Description for the entry of grub
+```
+
 # Warning
 -----------------
 Modifying boot configuration can render your system unbootable. 
