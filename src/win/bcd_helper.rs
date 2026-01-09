@@ -70,7 +70,7 @@ pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
 }
 
 pub(crate) fn get_grub_location(description: Option<String>) -> Result<Option<String>> {
-    let desc = description.unwrap_or_else(|| "grub".to_string());
+    let desc = description.unwrap_or_else(|| "grub".to_string()).to_lowercase();
     let entries = get_bcd_entries()?;
     let mut device: Option<String> = None;
     for i in entries {
