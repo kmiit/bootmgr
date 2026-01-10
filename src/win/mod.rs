@@ -45,16 +45,14 @@ fn rerun_as_administrator() -> Result<()> {
             ErrorKind::InvalidData,
             "Failed to retrieve executable path",
         ))?;
-        let exe_w: Vec<u16> = make_os_str(exe_path);
         let args: Vec<String> = std::env::args().skip(1).collect();
         let args_string = args.join(" ");
-        let params_w: Vec<u16> = make_os_str(&args_string);
 
         let result = ShellExecuteW(
             Option::from(HWND::default()),
             w!("runas"),
-            PCWSTR(exe_w.as_ptr()),
-            PCWSTR(params_w.as_ptr()),
+            PCWSTR(make_os_str(exe_path).as_ptr()),
+            PCWSTR(make_os_str(&args_string).as_ptr()),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         );

@@ -7,44 +7,34 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::core::PCWSTR;
 
-pub(crate) fn mount_volume_temporarily(device_path: &str) -> Result<String> {
-    let device = device_path.to_string();
-    let mount_dir = "GRUB_TEMP_MOUNT";
+pub(crate) fn mount_volume_temporarily(mount_point: &str, device_path: &str) -> Result<()> {
+    let mount_w: Vec<u16> = make_os_str(mount_point);
+    let device_w: Vec<u16> = make_os_str(device_path);
 
-    let mount_w: Vec<u16> = make_os_str(mount_dir);
-    let device_w: Vec<u16> = make_os_str(device.as_str());
-
-    let set_result = unsafe {
+    unsafe {
         DefineDosDeviceW(
             DDD_RAW_TARGET_PATH | DDD_NO_BROADCAST_SYSTEM,
             PCWSTR(mount_w.as_ptr()),
             PCWSTR(device_w.as_ptr()),
         )
-    };
-    if let Err(ref e) = set_result {
-        eprintln!(
-            "DefineDosDeviceW failed: {:?}\n  mount_str={:?}\n  vol={:?}\n",
-            e, mount_dir, device,
-        );
     }
-
-    match set_result {
-        Ok(()) => Ok(mount_dir.to_string()),
-        Err(e) => Err(Error::new(
-            ErrorKind::Other,
-            format!("DefineDosDeviceW failed: {:?}", e),
-        )),
-    }
+        .map_err(|e|  {
+            Error::new(
+                ErrorKind::Other,
+                format!("DefineDosDeviceW mount volume failed: {:?}", e),
+            )
+        })
 }
 
-pub(crate) fn unmount_volume(mount_path: &str) -> Result<()> {
+pub(crate) fn unmount_volume(mount_path: &str, device: &str) -> Result<()> {
     let mount_w = make_os_str(mount_path);
+    let device_w = make_os_str(device);
 
     unsafe {
         DefineDosDeviceW(
             DDD_REMOVE_DEFINITION | DDD_RAW_TARGET_PATH,
             PCWSTR(mount_w.as_ptr()),
-            None,
+            PCWSTR(device_w.as_ptr()),
         )
     }
     .map_err(|e| {
@@ -57,19 +47,25 @@ pub(crate) fn unmount_volume(mount_path: &str) -> Result<()> {
 
 impl TempMount {
     pub fn new(device_path: &str) -> Result<Self> {
-        let mount_point = mount_volume_temporarily(device_path)?;
-        Ok(Self { mount_point })
+        let mount_point = "GRUB_TEMP_MOUNT_POINT";
+        mount_volume_temporarily(mount_point, device_path)?;
+        Ok(Self {
+            device: device_path.to_string(),
+            mount_point: mount_point.to_string(),
+        })
     }
 
     pub fn path(&self) -> PathBuf {
         PathBuf::from(r"\\.\").join(&self.mount_point)
     }
+
+    pub fn unmount(&self) -> Result<()> {
+        unmount_volume(&self.mount_point, &self.device)
+    }
 }
 
 impl Drop for TempMount {
     fn drop(&mut self) {
-        if let Err(e) = unmount_volume(&self.mount_point) {
-            eprintln!("Warning: failed to unmount volume: {:?}", e);
-        }
+        let _ = self.unmount();
     }
 }

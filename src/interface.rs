@@ -211,5 +211,6 @@ pub struct GrubEntry {
 }
 
 pub struct TempMount {
+    pub(crate) device: String,
     pub(crate) mount_point: String,
 }
