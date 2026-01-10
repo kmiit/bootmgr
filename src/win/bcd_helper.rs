@@ -24,6 +24,7 @@ impl BcdEntry {
 
 pub(crate) fn show_bcd_list() {
     let entries = get_bcd_entries().expect("Failed to get BCD entries");
+    println!("The firmware boot entries(BCD):");
     for i in &entries {
         println!(
             "{}",
@@ -70,7 +71,9 @@ pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
 }
 
 pub(crate) fn get_grub_location(description: Option<String>) -> Result<Option<String>> {
-    let desc = description.unwrap_or_else(|| "grub".to_string()).to_lowercase();
+    let desc = description
+        .unwrap_or_else(|| "grub".to_string())
+        .to_lowercase();
     let entries = get_bcd_entries()?;
     let mut device: Option<String> = None;
     for i in entries {

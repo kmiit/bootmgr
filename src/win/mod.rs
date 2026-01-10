@@ -2,10 +2,10 @@ mod bcd_helper;
 mod volume_helper;
 
 use crate::common::file_operations;
-use crate::interface::{GrubEntry, Handle, Interface};
+use crate::interface::{Handle, Interface, TempMount};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{Result, Write};
+use std::io::{Error, ErrorKind, Result, Write};
 use std::os::windows::ffi::OsStrExt;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -72,35 +72,22 @@ impl Interface for Handle {
         rerun_as_administrator();
     }
 
-    fn get_grub_entry(&self) -> Result<Vec<GrubEntry>> {
-        let grub_cfg = self.get_file(file_operations::GRUB_CFG_PATH.to_string())?;
-        let grub_env = self.get_file(file_operations::GRUB_ENV_PATH.to_string())?;
-        self.parse_grub_entries(grub_cfg, grub_env)
-    }
+    fn get_file(&mut self, path: &str) -> Result<File> {
+        let device = self.get_grub_loc()?;
+        let mount = TempMount::new(&device)?;
 
-    fn get_file(&self, path: String) -> Result<File> {
-        let device = bcd_helper::get_grub_location(self.grub_desc.clone())?;
-        if device.clone().unwrap().as_str() == "" {
-            panic!("Failed to get grub location");
-        }
+        let file = file_operations::open_file_ro(mount.path().join(path))?;
 
-        let volume_guid = volume_helper::get_volume_guid_path(device.unwrap().as_str())?;
-        let mount_point = volume_helper::mount_volume_temporarily(volume_guid.as_str())?;
-        let file = file_operations::open_file_ro(mount_point.join(path))?;
-        volume_helper::unmount_volume(mount_point).expect("Umount failed");
         Ok(file)
     }
 
-    fn write_file(&self, path: String, content: String) -> Result<()> {
-        let device = bcd_helper::get_grub_location(self.grub_desc.clone())?;
-        if device.clone().unwrap() == "" {
-            panic!("Failed to get grub location");
-        }
-        let volume_guid = volume_helper::get_volume_guid_path(device.unwrap().as_str())?;
-        let mount_point = volume_helper::mount_volume_temporarily(volume_guid.as_str())?;
-        let mut file = file_operations::open_file_wo(mount_point.join(path))?;
+    fn write_file(&mut self, path: &str, content: &str) -> Result<()> {
+        let device = self.get_grub_loc()?;
+        let mount = TempMount::new(&device)?;
+
+        let mut file = file_operations::open_file_wo(mount.path().join(path))?;
+
         file.write_all(content.as_bytes())?;
-        volume_helper::unmount_volume(mount_point).expect("Umount failed");
         Ok(())
     }
 
@@ -111,6 +98,18 @@ impl Interface for Handle {
     fn set_fw_entry(&self, entry: String) -> Result<()> {
         println!("Set BCD firmware entry to {}", entry);
         bcd_helper::set_bcd_entry(entry)
+    }
+
+    fn get_grub_loc(&mut self) -> Result<String> {
+        if let Some(loc) = &self.grub_loc {
+            return Ok(loc.clone());
+        }
+
+        let loc = bcd_helper::get_grub_location(self.grub_desc.clone())?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "GRUB location not found"))?;
+
+        self.grub_loc = Some(loc.clone());
+        Ok(loc)
     }
 }
 

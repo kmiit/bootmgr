@@ -16,14 +16,18 @@ pub(crate) trait Interface {
     /// Get the grub entries from the grub.cfg file
     /// # Returns
     /// * `Result<Vec<GrubEntry>>` - A vector of GrubEntry objects
-    fn get_grub_entry(&self) -> Result<Vec<GrubEntry>>;
+    fn get_grub_entry(&mut self) -> Result<Vec<GrubEntry>> {
+        let grub_cfg = self.get_file(file_operations::GRUB_CFG_PATH)?;
+        let grub_env = self.get_file(file_operations::GRUB_ENV_PATH)?;
+        self.parse_grub_entries(grub_cfg, grub_env)
+    }
 
     /// Get a file at the given path
     /// # Arguments
     /// * `path` - The path to the file
     /// # Returns
     /// * `Result<File>` - A File object representing the file
-    fn get_file(&self, path: String) -> Result<File>;
+    fn get_file(&mut self, path: &str) -> Result<File>;
 
     /// Parse the grub.cfg file to get the grub entries
     /// # Arguments
@@ -79,7 +83,7 @@ pub(crate) trait Interface {
     /// * `content` - The content to write to the file
     /// # Returns
     /// * `Result<()>` - Ok if successful, Err otherwise
-    fn write_file(&self, path: String, content: String) -> Result<()>;
+    fn write_file(&mut self, path: &str, content: &str) -> Result<()>;
 
     /// Parse the grubenv file to get the default grub entry id
     /// /// # Arguments
@@ -104,25 +108,26 @@ pub(crate) trait Interface {
     /// * `grub_entry` - A GrubEntry object representing the grub entry to set as default
     /// # Returns
     /// * `Result<()>` - Ok if successful, Err otherwise
-    fn set_default_grub_entry(&self, grub_entry: GrubEntry) -> Result<()> {
+    fn set_default_grub_entry(&mut self, grub_entry: GrubEntry) -> Result<()> {
         println!("Set default GRUB entry: {:?}", grub_entry.entry_name);
-        let mut env_file = self.get_file(file_operations::GRUB_ENV_PATH.to_string())?;
+        let mut env_file = self.get_file(file_operations::GRUB_ENV_PATH)?;
         let mut content = String::new();
         env_file.read_to_string(&mut content)?;
         for line in content.lines() {
             if line.starts_with("saved_entry=") {
                 let new_content =
                     content.replace(line, &format!("saved_entry={}", grub_entry.entry_id));
-                self.write_file(file_operations::GRUB_ENV_PATH.to_string(), new_content)?;
+                self.write_file(file_operations::GRUB_ENV_PATH, &*new_content)?;
             }
         }
         Ok(())
     }
 
     /// Show the grub entries
-    fn show_grub_entry(&self) {
+    fn show_grub_entry(&mut self) {
         match self.get_grub_entry() {
             Ok(entries) => {
+                println!("Grub entry:");
                 for i in entries {
                     println!(
                         "{}",
@@ -145,7 +150,7 @@ pub(crate) trait Interface {
     /// Set the grub entry by id or index
     /// # Arguments
     /// * `entry_id` - The id or index of the grub entry to set as default
-    fn set_grub_entry(&self, entry_id: String) {
+    fn set_grub_entry(&mut self, entry_id: String) {
         let entries = self.get_grub_entry().unwrap();
 
         let entry = match entry_id.parse::<usize>() {
@@ -168,11 +173,17 @@ pub(crate) trait Interface {
     /// # Arguments
     /// * `entry` - The firmware boot entry to set
     fn set_fw_entry(&self, entry: String) -> Result<()>;
+
+    /// Get the location of the GRUB installation
+    /// # Returns
+    /// * `Result<String>` - The location of the GRUB installation
+    fn get_grub_loc(&mut self) -> Result<String>;
 }
 
 #[derive(Default)]
 pub struct Handle {
     pub grub_desc: Option<String>,
+    pub grub_loc: Option<String>,
 }
 
 impl Handle {
@@ -180,7 +191,7 @@ impl Handle {
         let s = Self::default();
         if !Self::check_permission(&s) {
             eprintln!("No admin permission, restarting as administrator");
-            // Self::rerun_as_superuser(&Self);
+            Self::rerun_as_superuser(&s);
             exit(1);
         }
         s
@@ -199,4 +210,8 @@ pub struct GrubEntry {
     pub entry_id: String,
     pub entry_in_submenu: bool,
     pub entry_is_default: bool,
+}
+
+pub struct TempMount {
+    pub(crate) mount_point: String,
 }
