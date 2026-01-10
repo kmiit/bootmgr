@@ -1,17 +1,17 @@
 use crate::common::file_operations;
 use regex::Regex;
 use std::fs::File;
-use std::io::{Read, Result};
+use std::io::{Error, ErrorKind, Read, Result};
 use std::process::exit;
 
 pub(crate) trait Interface {
     /// Check if the current user has permission to run the program
     /// # Returns
     /// * `bool` - true if the user has permission, false otherwise
-    fn check_permission(&self) -> bool;
+    fn check_permission(&self) -> Result<bool>;
 
     /// Rerun the program as a superuser
-    fn rerun_as_superuser(&self);
+    fn rerun_as_superuser(&self) -> Result<()>;
 
     /// Get the grub entries from the grub.cfg file
     /// # Returns
@@ -108,7 +108,7 @@ pub(crate) trait Interface {
     /// * `grub_entry` - A GrubEntry object representing the grub entry to set as default
     /// # Returns
     /// * `Result<()>` - Ok if successful, Err otherwise
-    fn set_default_grub_entry(&mut self, grub_entry: GrubEntry) -> Result<()> {
+    fn set_default_grub_entry(&mut self, grub_entry: &GrubEntry) -> Result<()> {
         println!("Set default GRUB entry: {:?}", grub_entry.entry_name);
         let mut env_file = self.get_file(file_operations::GRUB_ENV_PATH)?;
         let mut content = String::new();
@@ -124,50 +124,41 @@ pub(crate) trait Interface {
     }
 
     /// Show the grub entries
-    fn show_grub_entry(&mut self) {
-        match self.get_grub_entry() {
-            Ok(entries) => {
-                println!("Grub entry:");
-                for i in entries {
-                    println!(
-                        "{}",
-                        format!(
-                            "{} {}{} ({})",
-                            if i.entry_is_default { "*" } else { " " },
-                            if i.entry_in_submenu { "  " } else { "" },
-                            i.entry_name,
-                            i.entry_id
-                        )
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to get GRUB entries: {}", e);
-            }
+    fn show_grub_entry(&mut self) -> Result<()> {
+        let entries = self.get_grub_entry()?;
+        println!("Grub entry:");
+        for i in entries {
+            println!(
+                "{}",
+                format!(
+                    "{} {}{} ({})",
+                    if i.entry_is_default { "*" } else { " " },
+                    if i.entry_in_submenu { "  " } else { "" },
+                    i.entry_name,
+                    i.entry_id
+                )
+            );
         }
+        Ok(())
     }
 
     /// Set the grub entry by id or index
     /// # Arguments
     /// * `entry_id` - The id or index of the grub entry to set as default
-    fn set_grub_entry(&mut self, entry_id: String) {
-        let entries = self.get_grub_entry().unwrap();
+    fn set_grub_entry(&mut self, entry_id: String) -> Result<()> {
+        let entries = self.get_grub_entry()?;
 
         let entry = match entry_id.parse::<usize>() {
-            Ok(num) => entries.get(num),
+            Ok(index) => entries.get(index),
             Err(_) => entries.iter().find(|e| e.entry_id == entry_id),
-        };
-
-        match entry {
-            Some(e) => self.set_default_grub_entry(e.clone()).unwrap(),
-            None => {
-                eprintln!("GRUB entry ID {} not found", entry_id);
-            }
         }
+        .ok_or(Error::new(ErrorKind::NotFound, "GRUB entry not found"))?;
+
+        self.set_default_grub_entry(entry)
     }
 
     /// Show the firmware boot entries
-    fn show_fw_entry(&self);
+    fn show_fw_entry(&self) -> Result<()>;
 
     /// Set the firmware boot entry
     /// # Arguments
@@ -189,10 +180,17 @@ pub struct Handle {
 impl Handle {
     pub(crate) fn new() -> Self {
         let s = Self::default();
-        if !Self::check_permission(&s) {
-            eprintln!("No admin permission, restarting as administrator");
-            Self::rerun_as_superuser(&s);
-            exit(1);
+        match s.check_permission() {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("No admin permission, restarting as administrator");
+                let _ = s.rerun_as_superuser();
+                exit(1);
+            }
+            Err(e) => {
+                eprintln!("Failed to check permission: {}", e);
+                exit(1);
+            }
         }
         s
     }

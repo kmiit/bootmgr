@@ -7,20 +7,18 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result, Write};
 use std::os::windows::ffi::OsStrExt;
-use windows::Win32::Foundation::HWND;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::{PCWSTR, w};
 
-fn is_admin() -> bool {
+fn is_admin() -> Result<bool> {
     unsafe {
         let mut token_handle = HANDLE::default();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle).is_err() {
-            return false;
-        }
+        let open_thread =
+            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle).is_err();
 
         let mut elevation = TOKEN_ELEVATION::default();
         let mut return_size = size_of::<TOKEN_ELEVATION>() as u32;
@@ -34,16 +32,20 @@ fn is_admin() -> bool {
         )
         .is_err();
 
-        CloseHandle(token_handle).expect("Failed to close token handle");
+        CloseHandle(token_handle)?;
 
-        !success && elevation.TokenIsElevated != 0
+        Ok(!open_thread && elevation.TokenIsElevated != 0 && !success)
     }
 }
 
-fn rerun_as_administrator() {
+fn rerun_as_administrator() -> Result<()> {
     unsafe {
-        let exe_path = std::env::current_exe().unwrap();
-        let exe_w: Vec<u16> = make_os_str(exe_path.to_str().unwrap());
+        let exe_path = std::env::current_exe()?;
+        let exe_path = exe_path.to_str().ok_or(Error::new(
+            ErrorKind::InvalidData,
+            "Failed to retrieve executable path",
+        ))?;
+        let exe_w: Vec<u16> = make_os_str(exe_path);
         let args: Vec<String> = std::env::args().skip(1).collect();
         let args_string = args.join(" ");
         let params_w: Vec<u16> = make_os_str(&args_string);
@@ -57,7 +59,10 @@ fn rerun_as_administrator() {
             SW_SHOWNORMAL,
         );
         if result.0 as u32 <= 32 {
-            panic!("Failed to elevate, error={:?}", result.0);
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Failed to elevate with code {}", result.0 as u32),
+            ));
         }
 
         std::process::exit(0);
@@ -65,11 +70,11 @@ fn rerun_as_administrator() {
 }
 
 impl Interface for Handle {
-    fn check_permission(&self) -> bool {
-        is_admin()
+    fn check_permission(&self) -> Result<bool> {
+        Ok(is_admin()?)
     }
-    fn rerun_as_superuser(&self) {
-        rerun_as_administrator();
+    fn rerun_as_superuser(&self) -> Result<()> {
+        rerun_as_administrator()
     }
 
     fn get_file(&mut self, path: &str) -> Result<File> {
@@ -91,8 +96,8 @@ impl Interface for Handle {
         Ok(())
     }
 
-    fn show_fw_entry(&self) {
-        bcd_helper::show_bcd_list();
+    fn show_fw_entry(&self) -> Result<()> {
+        bcd_helper::show_bcd_list()
     }
 
     fn set_fw_entry(&self, entry: String) -> Result<()> {
@@ -106,7 +111,7 @@ impl Interface for Handle {
         }
 
         let loc = bcd_helper::get_grub_location(self.grub_desc.clone())?
-            .ok_or_else(|| Error::new(ErrorKind::NotFound, "GRUB location not found"))?;
+            .ok_or(Error::new(ErrorKind::NotFound, "GRUB location not found"))?;
 
         self.grub_loc = Some(loc.clone());
         Ok(loc)

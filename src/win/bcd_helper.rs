@@ -22,8 +22,8 @@ impl BcdEntry {
     }
 }
 
-pub(crate) fn show_bcd_list() {
-    let entries = get_bcd_entries().expect("Failed to get BCD entries");
+pub(crate) fn show_bcd_list() -> Result<()> {
+    let entries = get_bcd_entries()?;
     println!("The firmware boot entries(BCD):");
     for i in &entries {
         println!(
@@ -41,6 +41,7 @@ pub(crate) fn show_bcd_list() {
             )
         );
     }
+    Ok(())
 }
 
 pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
@@ -50,10 +51,9 @@ pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
             || i.id.clone().unwrap().to_lowercase() == entry.to_lowercase()
     });
     if !find_entry {
-        eprintln!("BCD entry {} not found", entry);
         Err(Error::new(ErrorKind::NotFound, "BCD entry not found"))
     } else {
-        let status = Command::new("bcdedit.exe")
+        if Command::new("bcdedit.exe")
             .args(&[
                 "/set",
                 "{fwbootmgr}",
@@ -61,40 +61,43 @@ pub(crate) fn set_bcd_entry(entry: String) -> Result<()> {
                 entry.as_str(),
                 "/addfirst",
             ])
-            .status();
-        if status.is_err() {
-            Err(Error::new(ErrorKind::Other, "set BCD entry failed"))
-        } else {
-            Ok(())
+            .status()
+            .is_err()
+        {
+            return Err(Error::new(ErrorKind::Other, "set BCD entry failed"));
         }
+        Ok(())
     }
 }
 
 pub(crate) fn get_grub_location(description: Option<String>) -> Result<Option<String>> {
-    let desc = description
-        .unwrap_or_else(|| "grub".to_string())
-        .to_lowercase();
-    let entries = get_bcd_entries()?;
-    let mut device: Option<String> = None;
-    for i in entries {
-        if !i.entry_on_disk() {
-            continue;
-        }
-        if i.description
-            .clone()
-            .unwrap()
-            .to_lowercase()
-            .contains(desc.as_str())
-        {
-            device = Option::from(
-                i.device.unwrap().split('=').collect::<Vec<&str>>()[1]
-                    .trim()
-                    .to_string(),
-            );
-            return Ok(device);
+    let mut grub_keywords: Vec<String> = vec![
+        "grub".to_string(),
+        "debian".to_string(),
+        "ubuntu".to_string(),
+    ];
+
+    if let Some(desc) = description {
+        grub_keywords.push(desc.to_lowercase());
+    }
+
+    for entry in get_bcd_entries()?.into_iter().filter(|e| e.entry_on_disk()) {
+        let entry_desc = match entry.description {
+            Some(d) => d.to_lowercase(),
+            None => continue,
+        };
+
+        for keyword in &grub_keywords {
+            if entry_desc.contains(keyword) {
+                if let Some(device) = &entry.device {
+                    if let Some((_, value)) = device.split_once('=') {
+                        return Ok(Some(value.trim().to_string()));
+                    }
+                }
+            }
         }
     }
-    Ok(device)
+    Ok(None)
 }
 
 fn get_bcd_entries() -> Result<Vec<BcdEntry>> {

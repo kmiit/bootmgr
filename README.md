@@ -5,8 +5,7 @@ Change default boot entry
 ## Windows
 -----------------
 > If you have more than one grub entry,
-> or changed default description of GRUB,
-> it may fail to detect the volume of GRUB.
+> it will only detect the first one.
 
 - List all boot entries(BCDEdit)
 - List all boot entries(Grub2)
